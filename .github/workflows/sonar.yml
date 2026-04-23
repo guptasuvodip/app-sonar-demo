@@ -37,16 +37,59 @@ jobs:
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
             -Dsonar.login=${{ secrets.SONAR_TOKEN }}
 
+      # ─────────────────────────────────────────────────────────
+      # Quality Gate — prints EVERY failing condition with detail
+      # ─────────────────────────────────────────────────────────
       - name: Quality Gate Check
         run: |
-          sleep 10
-          STATUS=$(curl -s \
+          echo "Waiting for SonarQube to process results..."
+          sleep 15
+
+          # Full API response saved to a file
+          curl -s \
             -u ${{ secrets.SONAR_TOKEN }}: \
-            "http://localhost:9000/api/qualitygates/project_status?projectKey=nodejs-sonar-demo" \
-            | jq -r '.projectStatus.status')
-          echo "Quality Gate → $STATUS"
+            "${{ secrets.SONAR_HOST_URL }}/api/qualitygates/project_status?projectKey=nodejs-sonar-demo" \
+            -o gate_result.json
+
+          echo "──────────────────────────────────────────"
+          echo "       FULL QUALITY GATE RESULT"
+          echo "──────────────────────────────────────────"
+          cat gate_result.json | jq .
+
+          # Overall status
+          STATUS=$(cat gate_result.json | jq -r '.projectStatus.status')
+          echo ""
+          echo "Overall Status → $STATUS"
+          echo ""
+
+          # Print each failing condition with metric + actual vs threshold
+          echo "──────────────────────────────────────────"
+          echo "       FAILING CONDITIONS"
+          echo "──────────────────────────────────────────"
+          cat gate_result.json | jq -r '
+            .projectStatus.conditions[] |
+            select(.status == "ERROR") |
+            "❌ FAILED: " + .metricKey +
+            " | Actual: " + .actualValue +
+            " | Threshold: " + .errorThreshold
+          '
+
+          # Print passing conditions too for full picture
+          echo ""
+          echo "──────────────────────────────────────────"
+          echo "       PASSING CONDITIONS"
+          echo "──────────────────────────────────────────"
+          cat gate_result.json | jq -r '
+            .projectStatus.conditions[] |
+            select(.status == "OK") |
+            "✅ PASSED: " + .metricKey +
+            " | Actual: " + .actualValue +
+            " | Threshold: " + .errorThreshold
+          '
+
+          echo ""
           if [ "$STATUS" != "OK" ]; then
-            echo "❌ Quality Gate FAILED"
+            echo "❌ Quality Gate FAILED — see failing conditions above"
             exit 1
           fi
           echo "✅ Quality Gate PASSED"
