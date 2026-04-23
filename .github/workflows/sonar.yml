@@ -1,0 +1,51 @@
+name: CI - SonarQube Analysis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  sonar-analysis:
+    name: Test + SonarQube Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        run: npm test
+
+      - name: Install sonar-scanner
+        run: npm install -g sonar-scanner
+
+      - name: Run SonarQube Scan
+        run: |
+          sonar-scanner \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+
+      - name: Quality Gate Check
+        run: |
+          sleep 10
+          STATUS=$(curl -s \
+            -u ${{ secrets.SONAR_TOKEN }}: \
+            "http://localhost:9000/api/qualitygates/project_status?projectKey=nodejs-sonar-demo" \
+            | jq -r '.projectStatus.status')
+          echo "Quality Gate → $STATUS"
+          if [ "$STATUS" != "OK" ]; then
+            echo "❌ Quality Gate FAILED"
+            exit 1
+          fi
+          echo "✅ Quality Gate PASSED"
